@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
 APP_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APP_NAME = "SSAI-WX 通知小工具"
-APP_VERSION = "V1.0.0"
+APP_VERSION = "V1.0.1"
 CONTACT_WECHAT = "sanshengya88"
 
 
@@ -58,6 +58,7 @@ USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = USER_DATA_DIR / "send_log.jsonl"
 ICON_FILE = RESOURCE_DIR / "assets" / "app_icon.png"
 DOCUMENT_MEDIA_DIR = USER_DATA_DIR / "document_media"
+CLIPBOARD_MEDIA_DIR = USER_DATA_DIR / "clipboard_media"
 SUPPORTED_IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".heic", ".webp"}
 SUPPORTED_VIDEOS = {".mp4", ".mov", ".m4v", ".avi", ".mkv"}
 SUPPORTED_MEDIA = SUPPORTED_IMAGES | SUPPORTED_VIDEOS
@@ -229,7 +230,7 @@ def set_files_clipboard(paths: Iterable[Path]) -> None:
         pasteboard = NSPasteboard.generalPasteboard()
         pasteboard.clearContents()
         if not pasteboard.writeObjects_(urls):
-            raise RuntimeError("无法把图片写入系统剪贴板")
+            raise RuntimeError("无法把附件写入系统剪贴板")
     except MissingDependency:
         aliases = []
         for path in path_list:
@@ -682,10 +683,10 @@ class SystemMessage(QFrame):
 
 
 class SendTextEdit(QTextEdit):
-    def __init__(self, send_callback, image_callback) -> None:
+    def __init__(self, send_callback, media_callback) -> None:
         super().__init__()
         self.send_callback = send_callback
-        self.image_callback = image_callback
+        self.media_callback = media_callback
         self.setAcceptDrops(True)
 
     def keyPressEvent(self, event) -> None:
@@ -697,21 +698,39 @@ class SendTextEdit(QTextEdit):
         super().keyPressEvent(event)
 
     def dragEnterEvent(self, event) -> None:
-        if self.extract_image_paths(event.mimeData()):
+        if self.extract_media_paths(event.mimeData()) or event.mimeData().hasImage():
             event.acceptProposedAction()
             return
         super().dragEnterEvent(event)
 
     def dropEvent(self, event) -> None:
-        paths = self.extract_image_paths(event.mimeData())
+        paths = self.extract_media_paths(event.mimeData())
         if paths:
-            self.image_callback(paths)
+            self.media_callback(paths)
             event.acceptProposedAction()
             return
+        if event.mimeData().hasImage():
+            saved_path = self.save_clipboard_image(event.mimeData().imageData())
+            if saved_path:
+                self.media_callback([saved_path])
+                event.acceptProposedAction()
+                return
         super().dropEvent(event)
 
+    def insertFromMimeData(self, source) -> None:
+        paths = self.extract_media_paths(source)
+        if paths:
+            self.media_callback(paths)
+            return
+        if source.hasImage():
+            saved_path = self.save_clipboard_image(source.imageData())
+            if saved_path:
+                self.media_callback([saved_path])
+                return
+        super().insertFromMimeData(source)
+
     @staticmethod
-    def extract_image_paths(mime_data) -> list[Path]:
+    def extract_media_paths(mime_data) -> list[Path]:
         if not mime_data.hasUrls():
             return []
         paths: list[Path] = []
@@ -719,9 +738,22 @@ class SendTextEdit(QTextEdit):
             if not url.isLocalFile():
                 continue
             path = Path(url.toLocalFile())
-            if path.suffix.lower() in SUPPORTED_IMAGES:
+            if path.suffix.lower() in SUPPORTED_MEDIA:
                 paths.append(path)
         return paths
+
+    @staticmethod
+    def save_clipboard_image(image_data) -> Path | None:
+        if image_data is None:
+            return None
+        CLIPBOARD_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+        output_path = CLIPBOARD_MEDIA_DIR / f"pasted_image_{time.time_ns()}.png"
+        if hasattr(image_data, "save") and image_data.save(str(output_path), "PNG"):
+            return output_path
+        pixmap = QPixmap(image_data)
+        if not pixmap.isNull() and pixmap.save(str(output_path), "PNG"):
+            return output_path
+        return None
 
 
 class MainWindow(QWidget):
@@ -830,7 +862,7 @@ class MainWindow(QWidget):
         text_row.setSpacing(8)
         self.add_attachment_button = QPushButton("+")
         self.add_attachment_button.setObjectName("attachButton")
-        self.add_attachment_button.setToolTip("添加图片或文档")
+        self.add_attachment_button.setToolTip("添加图片、视频或文档")
         self.add_attachment_button.clicked.connect(self.add_attachments)
         self.add_attachment_button.setFixedSize(30, 30)
         text_row.addWidget(self.add_attachment_button, 0, Qt.AlignTop)
@@ -878,7 +910,7 @@ class MainWindow(QWidget):
         input_row.addLayout(action_column)
         composer_layout.addLayout(input_row)
 
-        self.attachment_label = QLabel("未选择图片")
+        self.attachment_label = QLabel("未选择图片、视频或文档")
         self.attachment_label.setObjectName("mutedLabel")
         composer_layout.addWidget(self.attachment_label)
 
@@ -1300,11 +1332,11 @@ class MainWindow(QWidget):
 
     def update_attachment_summary(self) -> None:
         if not self.image_paths:
-            self.attachment_label.setText("未选择图片或文档")
+            self.attachment_label.setText("未选择图片、视频或文档")
         elif len(self.image_paths) == 1:
-            self.attachment_label.setText(f"已选择 1 张图片：{self.image_paths[0].name}")
+            self.attachment_label.setText(f"已选择 1 个附件：{self.image_paths[0].name}")
         else:
-            self.attachment_label.setText(f"已选择 {len(self.image_paths)} 张图片")
+            self.attachment_label.setText(f"已选择 {len(self.image_paths)} 个附件")
 
     def update_queue_label(self) -> None:
         waiting_count = len(self.send_queue)
@@ -1334,19 +1366,19 @@ class MainWindow(QWidget):
     def add_attachments(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "选择图片或文档",
+            "选择图片、视频或文档",
             str(Path.home()),
-            "图片或文档 (*.png *.jpg *.jpeg *.gif *.bmp *.tiff *.heic *.webp *.txt *.docx *.doc);;图片文件 (*.png *.jpg *.jpeg *.gif *.bmp *.tiff *.heic *.webp);;文档 (*.txt *.docx *.doc);;所有文件 (*.*)",
+            "图片、视频或文档 (*.png *.jpg *.jpeg *.gif *.bmp *.tiff *.heic *.webp *.mp4 *.mov *.m4v *.avi *.mkv *.txt *.docx *.doc);;图片文件 (*.png *.jpg *.jpeg *.gif *.bmp *.tiff *.heic *.webp);;视频文件 (*.mp4 *.mov *.m4v *.avi *.mkv);;文档 (*.txt *.docx *.doc);;所有文件 (*.*)",
         )
         paths = [Path(file_name) for file_name in files]
         document_paths = [path for path in paths if path.suffix.lower() in SUPPORTED_DOCUMENTS]
-        image_paths = [path for path in paths if path.suffix.lower() in SUPPORTED_IMAGES]
+        media_paths = [path for path in paths if path.suffix.lower() in SUPPORTED_MEDIA]
         if document_paths:
             self.add_document(document_paths[0])
             if len(document_paths) > 1:
                 QMessageBox.information(self, "已选择一个文档", "一次只处理一个文档，已使用第一个文档。")
             return
-        self.add_image_paths(image_paths)
+        self.add_image_paths(media_paths)
 
     def add_document(self, path: Path) -> None:
         try:
@@ -1376,7 +1408,7 @@ class MainWindow(QWidget):
         if paths and self.document_path:
             self.clear_document()
         for path in paths:
-            if path.suffix.lower() not in SUPPORTED_IMAGES:
+            if path.suffix.lower() not in SUPPORTED_MEDIA:
                 QMessageBox.warning(self, "不支持的文件", f"已跳过：{path.name}")
                 continue
             if path not in self.image_paths:
@@ -1413,7 +1445,7 @@ class MainWindow(QWidget):
             thumb.setToolTip(path.name)
             pix = QPixmap(str(path))
             if pix.isNull():
-                thumb.setText(path.name[:5])
+                thumb.setText("视频" if path.suffix.lower() in SUPPORTED_VIDEOS else path.name[:5])
                 thumb.setAlignment(Qt.AlignCenter)
             else:
                 thumb.setPixmap(pix.scaled(44, 34, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
@@ -1421,7 +1453,7 @@ class MainWindow(QWidget):
 
             remove_button = QPushButton("×")
             remove_button.setObjectName("removePreviewButton")
-            remove_button.setToolTip("移除这张图片")
+            remove_button.setToolTip("移除这个附件")
             remove_button.setFixedSize(18, 18)
             remove_button.clicked.connect(lambda _checked=False, p=path: self.remove_image_path(p))
             item_layout.addWidget(remove_button, 0, Qt.AlignTop)
@@ -1460,11 +1492,11 @@ class MainWindow(QWidget):
         refresh_windows: bool = True,
     ) -> bool:
         if not text.strip() and not images:
-            QMessageBox.warning(self, "没有内容", "请输入文字或添加至少一张图片。")
+            QMessageBox.warning(self, "没有内容", "请输入文字或添加至少一个图片/视频附件。")
             return False
         missing = [str(path) for path in images if not path.exists()]
         if missing:
-            QMessageBox.critical(self, "图片不存在", "以下图片不存在：\n" + "\n".join(missing))
+            QMessageBox.critical(self, "附件不存在", "以下附件不存在：\n" + "\n".join(missing))
             return False
         if refresh_windows and not detect_wechat_process():
             QMessageBox.critical(self, "微信未运行", "请先打开并登录微信 Mac 客户端。")
