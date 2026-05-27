@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 APP_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APP_NAME = "SSAI-WX 通知小工具"
-APP_VERSION = "V1.0.2"
+APP_VERSION = "V1.0.3"
 CONTACT_WECHAT = "sanshengya88"
 
 
@@ -209,7 +209,28 @@ def list_wechat_windows() -> list[WeChatWindow]:
         return list_windows_wechat_windows()
 
     windows: list[WeChatWindow] = []
+    process_errors: list[str] = []
+    available_processes: list[str] = []
     for process_name in WECHAT_PROCESS_NAMES:
+        try:
+            exists = run_osascript(
+                f'tell application "System Events" to exists process "{process_name}"'
+            ).lower() == "true"
+        except RuntimeError as exc:
+            process_errors.append(str(exc))
+            continue
+        if exists:
+            available_processes.append(process_name)
+
+    if not available_processes:
+        if process_errors:
+            raise RuntimeError(
+                "无法读取系统窗口列表，请确认已给 SSAI-WX 通知小工具开启辅助功能权限。"
+            )
+        return []
+
+    last_error: RuntimeError | None = None
+    for process_name in available_processes:
         script = f'''
 tell application "System Events"
     if exists process "{process_name}" then
@@ -231,7 +252,8 @@ return ""
 '''
         try:
             output = run_osascript(script)
-        except RuntimeError:
+        except RuntimeError as exc:
+            last_error = exc
             continue
         for line in output.splitlines():
             parts = line.split("|||§IDX§|||", 1)
@@ -251,6 +273,10 @@ return ""
             windows.append(WeChatWindow(proc, index, title))
         if windows:
             break
+    if not windows and last_error:
+        raise RuntimeError(
+            f"已检测到微信进程，但无法读取微信窗口。请确认已给 SSAI-WX 通知小工具开启辅助功能权限。原始错误：{last_error}"
+        )
     return windows
 
 
