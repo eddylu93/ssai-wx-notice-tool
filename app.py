@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 APP_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APP_NAME = "SSAI-WX 通知小工具"
-APP_VERSION = "V1.0.6"
+APP_VERSION = "V1.0.7"
 CONTACT_WECHAT = "sanshengya88"
 
 
@@ -464,15 +464,29 @@ def press_paste_and_enter() -> None:
         pyautogui.press("enter")
         return
 
-    run_osascript(
-        '''
-tell application "System Events"
-    keystroke "v" using command down
-    delay 0.35
-    key code 36
-end tell
-'''
-    )
+    try:
+        from Quartz import (
+            CGEventCreateKeyboardEvent,
+            CGEventPost,
+            CGEventSetFlags,
+            kCGEventFlagMaskCommand,
+            kCGHIDEventTap,
+        )
+
+        def post_key(key_code: int, flags: int = 0) -> None:
+            down = CGEventCreateKeyboardEvent(None, key_code, True)
+            up = CGEventCreateKeyboardEvent(None, key_code, False)
+            CGEventSetFlags(down, flags)
+            CGEventSetFlags(up, flags)
+            CGEventPost(kCGHIDEventTap, down)
+            time.sleep(0.04)
+            CGEventPost(kCGHIDEventTap, up)
+
+        post_key(9, kCGEventFlagMaskCommand)  # Command+V
+        time.sleep(0.45)
+        post_key(36)  # Return
+    except Exception as exc:
+        raise RuntimeError(f"无法执行粘贴和回车发送，请检查辅助功能权限：{exc}") from exc
 
 
 def append_log(entry: dict) -> None:
@@ -1005,6 +1019,7 @@ class MainWindow(QWidget):
         self.is_paused = False
         self.last_job_signature: tuple | None = None
         self.last_job_created_at = 0.0
+        self.window_hidden_for_send = False
 
         self.build_ui()
         self.apply_styles()
@@ -1947,6 +1962,7 @@ class MainWindow(QWidget):
             self.add_chat_bubble(job.text, job.images, len(job.targets), job.dry_run)
             job.shown_in_chat = True
 
+        self.hide_tool_window_for_sending(job)
         thread = QThread(self)
         worker = SendWorker(job)
         worker.moveToThread(thread)
@@ -1961,6 +1977,23 @@ class MainWindow(QWidget):
         self.worker_thread = thread
         self.worker = worker
         thread.start()
+
+    def hide_tool_window_for_sending(self, job: SendJob) -> None:
+        if sys.platform != "darwin" or job.dry_run or self.window_hidden_for_send:
+            return
+        self.window_hidden_for_send = True
+        self.hide()
+        QApplication.processEvents()
+        time.sleep(0.15)
+
+    def restore_tool_window_after_sending(self) -> None:
+        if not self.window_hidden_for_send:
+            return
+        self.window_hidden_for_send = False
+        self.show()
+        if self.topmost_check.isChecked():
+            self.raise_()
+        QApplication.processEvents()
 
     def toggle_pause(self) -> None:
         if self.is_paused:
@@ -2057,6 +2090,7 @@ class MainWindow(QWidget):
     def on_worker_thread_finished(self) -> None:
         self.worker_thread = None
         self.worker = None
+        self.restore_tool_window_after_sending()
         if self.stop_requested:
             self.finish_stop()
             return
