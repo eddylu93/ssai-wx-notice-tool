@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 APP_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APP_NAME = "SSAI-WX 通知小工具"
-APP_VERSION = "V1.0.3"
+APP_VERSION = "V1.0.4"
 CONTACT_WECHAT = "sanshengya88"
 
 
@@ -120,6 +120,26 @@ def require_module(module_name: str, install_name: str | None = None) -> object:
 
 
 def run_osascript(script: str) -> str:
+    if sys.platform == "darwin":
+        try:
+            from Foundation import NSAppleScript
+
+            apple_script = NSAppleScript.alloc().initWithSource_(script)
+            result, error_info = apple_script.executeAndReturnError_(None)
+            if error_info:
+                message = (
+                    error_info.get("NSAppleScriptErrorMessage")
+                    or error_info.get("NSLocalizedDescription")
+                    or str(error_info)
+                )
+                number = error_info.get("NSAppleScriptErrorNumber")
+                if number is not None:
+                    message = f"{message} ({number})"
+                raise RuntimeError(message)
+            return result.stringValue() if result is not None and result.stringValue() is not None else ""
+        except ImportError:
+            pass
+
     proc = subprocess.run(
         ["osascript", "-e", script],
         text=True,
