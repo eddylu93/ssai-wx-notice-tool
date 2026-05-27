@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 APP_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APP_NAME = "SSAI-WX 通知小工具"
-APP_VERSION = "V1.0.7"
+APP_VERSION = "V1.0.8"
 CONTACT_WECHAT = "sanshengya88"
 
 
@@ -328,37 +328,55 @@ def raise_wechat_window(window: WeChatWindow) -> None:
         return
 
     process_name = escape_applescript_text(window.process_name)
+    title = escape_applescript_text(window.title)
     script = f'''
 tell application "{process_name}" to activate
 delay 0.2
 tell application "System Events"
     tell process "{process_name}"
         set frontmost to true
+        set targetWindow to missing value
+        repeat with i from 1 to count of windows
+            try
+                if (name of window i as text) is "{title}" then
+                    set targetWindow to window i
+                    exit repeat
+                end if
+            end try
+        end repeat
+        if targetWindow is missing value then
+            set targetWindow to window {window.index}
+        end if
         try
-            perform action "AXRaise" of window {window.index}
+            perform action "AXRaise" of targetWindow
         on error
-            set value of attribute "AXMain" of window {window.index} to true
+            set value of attribute "AXMain" of targetWindow to true
         end try
-        set windowPosition to position of window {window.index}
-        set windowSize to size of window {window.index}
-        set clickX to ((item 1 of windowPosition) + ((item 1 of windowSize) / 2)) as integer
-        set clickY to ((item 2 of windowPosition) + (item 2 of windowSize) - 72) as integer
-        return (clickX as text) & "," & (clickY as text)
+        set windowPosition to position of targetWindow
+        set windowSize to size of targetWindow
+        return ((item 1 of windowPosition) as text) & "," & ((item 2 of windowPosition) as text) & "," & ((item 1 of windowSize) as text) & "," & ((item 2 of windowSize) as text)
     end tell
 end tell
 '''
-    click_point = run_osascript(script)
-    focus_wechat_input(click_point)
+    window_bounds = run_osascript(script)
+    focus_wechat_input(window_bounds)
     time.sleep(0.15)
 
 
-def focus_wechat_input(click_point: str) -> None:
+def focus_wechat_input(window_bounds: str) -> None:
     try:
-        x_text, y_text = click_point.split(",", 1)
+        x_text, y_text, width_text, height_text = window_bounds.split(",", 3)
         x = int(float(x_text.strip()))
         y = int(float(y_text.strip()))
+        width = int(float(width_text.strip()))
+        height = int(float(height_text.strip()))
     except ValueError as exc:
-        raise RuntimeError(f"无法获取微信输入框点击位置：{click_point}") from exc
+        raise RuntimeError(f"无法获取微信窗口位置：{window_bounds}") from exc
+    click_points = [
+        (x + width // 2, y + height - 128),
+        (x + width // 2, y + height - 92),
+        (x + min(width - 80, 170), y + height - 118),
+    ]
     if sys.platform == "darwin":
         try:
             from Quartz import (
@@ -370,18 +388,22 @@ def focus_wechat_input(click_point: str) -> None:
                 kCGMouseButtonLeft,
             )
 
-            down = CGEventCreateMouseEvent(None, kCGEventLeftMouseDown, (x, y), kCGMouseButtonLeft)
-            up = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, (x, y), kCGMouseButtonLeft)
-            CGEventPost(kCGHIDEventTap, down)
-            time.sleep(0.05)
-            CGEventPost(kCGHIDEventTap, up)
+            for point in click_points:
+                down = CGEventCreateMouseEvent(None, kCGEventLeftMouseDown, point, kCGMouseButtonLeft)
+                up = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, point, kCGMouseButtonLeft)
+                CGEventPost(kCGHIDEventTap, down)
+                time.sleep(0.04)
+                CGEventPost(kCGHIDEventTap, up)
+                time.sleep(0.08)
             return
         except Exception as exc:
             raise RuntimeError(f"无法点击微信输入框，请检查辅助功能权限：{exc}") from exc
 
     try:
         pyautogui = require_module("pyautogui")
-        pyautogui.click(x=x, y=y)
+        for point in click_points:
+            pyautogui.click(x=point[0], y=point[1])
+            time.sleep(0.08)
     except Exception as exc:
         raise RuntimeError(f"无法点击微信输入框，请检查辅助功能权限：{exc}") from exc
 
