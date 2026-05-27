@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 APP_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APP_NAME = "SSAI-WX 通知小工具"
-APP_VERSION = "V1.0.5"
+APP_VERSION = "V1.0.6"
 CONTACT_WECHAT = "sanshengya88"
 
 
@@ -117,6 +117,17 @@ def require_module(module_name: str, install_name: str | None = None) -> object:
     except ImportError as exc:
         package = install_name or module_name
         raise MissingDependency(f"缺少依赖 {package}。请先安装项目依赖。") from exc
+
+
+def is_macos_accessibility_trusted(prompt: bool = False) -> bool:
+    if sys.platform != "darwin":
+        return True
+    try:
+        from Quartz import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt
+
+        return bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: prompt}))
+    except Exception:
+        return False
 
 
 def run_osascript(script: str) -> str:
@@ -999,6 +1010,8 @@ class MainWindow(QWidget):
         self.apply_styles()
         self.render_targets([])
         self.add_system_message("输入通知后点击“同步发送”，消息会同步到拆分窗口。")
+        if sys.platform == "darwin":
+            QTimer.singleShot(500, self.check_accessibility_permission)
 
     def build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -1697,6 +1710,20 @@ class MainWindow(QWidget):
             self.add_log(f"检测到 {len(self.detected_windows)} 个拆分窗口")
         else:
             self.add_log("未检测到拆分窗口")
+
+    def check_accessibility_permission(self) -> None:
+        if is_macos_accessibility_trusted(prompt=True):
+            return
+        self.add_system_message("需要开启辅助功能权限后才能读取微信窗口和自动发送。")
+        self.add_log("未开启辅助功能权限：请在系统设置中允许 SSAI-WX 通知小工具")
+        QMessageBox.information(
+            self,
+            "需要开启辅助功能权限",
+            "SSAI-WX 通知小工具需要 macOS 辅助功能权限，才能读取拆分微信窗口、点击输入框并执行粘贴发送。\n\n"
+            "请在弹出的系统设置里开启本工具权限；如果没有看到弹窗，请手动进入：\n"
+            "系统设置 > 隐私与安全性 > 辅助功能 > SSAI-WX 通知小工具。\n\n"
+            "开启后请完全退出并重新打开工具。",
+        )
 
     def validate_before_send(
         self,
