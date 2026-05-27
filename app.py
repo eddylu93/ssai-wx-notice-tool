@@ -282,10 +282,31 @@ tell application "System Events"
         on error
             set value of attribute "AXMain" of window {window.index} to true
         end try
+        set windowPosition to position of window {window.index}
+        set windowSize to size of window {window.index}
+        set clickX to ((item 1 of windowPosition) + ((item 1 of windowSize) / 2)) as integer
+        set clickY to ((item 2 of windowPosition) + (item 2 of windowSize) - 72) as integer
+        return (clickX as text) & "," & (clickY as text)
     end tell
 end tell
 '''
-    run_osascript(script)
+    click_point = run_osascript(script)
+    focus_wechat_input(click_point)
+    time.sleep(0.15)
+
+
+def focus_wechat_input(click_point: str) -> None:
+    try:
+        x_text, y_text = click_point.split(",", 1)
+        x = int(float(x_text.strip()))
+        y = int(float(y_text.strip()))
+    except ValueError as exc:
+        raise RuntimeError(f"无法获取微信输入框点击位置：{click_point}") from exc
+    try:
+        pyautogui = require_module("pyautogui")
+        pyautogui.click(x=x, y=y)
+    except Exception as exc:
+        raise RuntimeError(f"无法点击微信输入框，请检查辅助功能权限：{exc}") from exc
 
 
 def set_text_clipboard(text: str) -> None:
