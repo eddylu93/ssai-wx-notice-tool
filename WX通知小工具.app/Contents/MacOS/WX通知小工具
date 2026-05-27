@@ -1,0 +1,11 @@
+#!/bin/zsh
+set -e
+
+APP_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$APP_ROOT"
+
+if [ -x "$APP_ROOT/.venv/bin/python" ]; then
+  exec "$APP_ROOT/.venv/bin/python" "$APP_ROOT/app.py"
+fi
+
+exec /opt/homebrew/bin/python3.13 "$APP_ROOT/app.py"
