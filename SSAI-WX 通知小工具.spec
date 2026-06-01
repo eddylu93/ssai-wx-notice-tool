@@ -1,5 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import re
+from pathlib import Path
+
+
+APP_NAME = 'SSAI-WX 通知小工具'
+APP_IDENTIFIER = 'local.ssai.wx.notice.helper'
+APP_VERSION = re.search(
+    r'^APP_VERSION\s*=\s*"V?([^"]+)"',
+    Path('app.py').read_text(encoding='utf-8'),
+    re.MULTILINE,
+).group(1)
 
 a = Analysis(
     ['app.py'],
@@ -41,11 +52,18 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='SSAI-WX 通知小工具',
+    name=APP_NAME,
 )
 app = BUNDLE(
     coll,
-    name='SSAI-WX 通知小工具.app',
+    name=f'{APP_NAME}.app',
     icon='assets/app_icon.icns',
-    bundle_identifier='local.ssai.wx.notice.helper',
+    bundle_identifier=APP_IDENTIFIER,
+    info_plist={
+        'CFBundleDisplayName': APP_NAME,
+        'CFBundleName': APP_NAME,
+        'CFBundleShortVersionString': APP_VERSION,
+        'CFBundleVersion': APP_VERSION,
+        'NSHighResolutionCapable': True,
+    },
 )

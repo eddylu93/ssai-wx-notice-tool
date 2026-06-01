@@ -48,8 +48,11 @@ packaging/macos/build_macos.sh
 打包结果会输出到：
 
 ```text
-release/macos/
+release/macos/SSAI-WX-Notice-Tool-V当前版本-macOS-arm64.dmg
+release/macos/SSAI-WX-Notice-Tool-V当前版本-macOS-arm64.pkg
 ```
+
+打包脚本会从 `app.py` 的 `APP_VERSION` 读取版本号，并同步写入 macOS App 的 `CFBundleShortVersionString` 和 `CFBundleVersion`。
 
 Windows 打包可在 Windows 项目根目录运行：
 
