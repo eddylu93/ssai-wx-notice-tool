@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 APP_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APP_NAME = "SSAI-WX 通知小工具"
-APP_VERSION = "V1.0.8"
+APP_VERSION = "V1.0.9"
 CONTACT_WECHAT = "sanshengya88"
 
 
@@ -128,6 +128,20 @@ def is_macos_accessibility_trusted(prompt: bool = False) -> bool:
         return bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: prompt}))
     except Exception:
         return False
+
+
+def open_macos_accessibility_settings() -> None:
+    if sys.platform != "darwin":
+        return
+    settings_urls = [
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
+    ]
+    for url in settings_urls:
+        result = subprocess.run(["open", url], check=False)
+        if result.returncode == 0:
+            return
+    subprocess.run(["open", "/System/Applications/System Settings.app"], check=False)
 
 
 def run_osascript(script: str) -> str:
@@ -1753,14 +1767,22 @@ class MainWindow(QWidget):
             return
         self.add_system_message("需要开启辅助功能权限后才能读取微信窗口和自动发送。")
         self.add_log("未开启辅助功能权限：请在系统设置中允许 SSAI-WX 通知小工具")
-        QMessageBox.information(
-            self,
-            "需要开启辅助功能权限",
-            "SSAI-WX 通知小工具需要 macOS 辅助功能权限，才能读取拆分微信窗口、点击输入框并执行粘贴发送。\n\n"
-            "请在弹出的系统设置里开启本工具权限；如果没有看到弹窗，请手动进入：\n"
-            "系统设置 > 隐私与安全性 > 辅助功能 > SSAI-WX 通知小工具。\n\n"
-            "开启后请完全退出并重新打开工具。",
+        message_box = QMessageBox(self)
+        message_box.setIcon(QMessageBox.Information)
+        message_box.setWindowTitle("需要开启辅助功能权限")
+        message_box.setText("SSAI-WX 通知小工具需要 macOS 辅助功能权限。")
+        message_box.setInformativeText(
+            "该权限用于读取拆分微信窗口、点击输入框并执行粘贴发送。\n\n"
+            "点击“去开启权限”后，请在系统设置里打开 SSAI-WX 通知小工具 的开关。"
+            "开启后请完全退出并重新打开工具。"
         )
+        open_button = message_box.addButton("去开启权限", QMessageBox.AcceptRole)
+        message_box.addButton("稍后再说", QMessageBox.RejectRole)
+        message_box.exec()
+        if message_box.clickedButton() == open_button:
+            open_macos_accessibility_settings()
+            self.add_log("已打开系统辅助功能设置，请开启 SSAI-WX 通知小工具 后重启")
+            self.add_system_message("已打开系统辅助功能设置，请开启权限后重启工具。")
 
     def validate_before_send(
         self,
