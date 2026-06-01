@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 APP_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APP_NAME = "SSAI-WX 通知小工具"
-APP_VERSION = "V1.0.10"
+APP_VERSION = "V1.0.11"
 CONTACT_WECHAT = "sanshengya88"
 
 
@@ -437,7 +437,15 @@ def set_text_clipboard(text: str) -> None:
             win32clipboard.CloseClipboard()
         return
 
-    subprocess.run(["pbcopy"], input=text, text=True, check=True)
+    try:
+        from AppKit import NSPasteboard, NSPasteboardTypeString
+
+        pasteboard = NSPasteboard.generalPasteboard()
+        pasteboard.clearContents()
+        if not pasteboard.setString_forType_(text, NSPasteboardTypeString):
+            raise RuntimeError("无法把文字写入系统剪贴板")
+    except ImportError:
+        subprocess.run(["pbcopy"], input=text, text=True, encoding="utf-8", check=True)
 
 
 def clear_clipboard() -> None:
@@ -453,7 +461,12 @@ def clear_clipboard() -> None:
             win32clipboard.CloseClipboard()
         return
 
-    subprocess.run(["pbcopy"], input="", text=True, check=True)
+    try:
+        from AppKit import NSPasteboard
+
+        NSPasteboard.generalPasteboard().clearContents()
+    except ImportError:
+        subprocess.run(["pbcopy"], input="", text=True, encoding="utf-8", check=True)
 
 
 def set_files_clipboard(paths: Iterable[Path]) -> None:
