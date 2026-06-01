@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
 APP_DIR = Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 APP_NAME = "SSAI-WX 通知小工具"
-APP_VERSION = "V1.0.9"
+APP_VERSION = "V1.0.10"
 CONTACT_WECHAT = "sanshengya88"
 
 
@@ -501,26 +501,15 @@ def press_paste_and_enter() -> None:
         return
 
     try:
-        from Quartz import (
-            CGEventCreateKeyboardEvent,
-            CGEventPost,
-            CGEventSetFlags,
-            kCGEventFlagMaskCommand,
-            kCGHIDEventTap,
+        run_osascript(
+            '''
+tell application "System Events"
+    keystroke "v" using command down
+    delay 0.65
+    key code 36
+end tell
+'''
         )
-
-        def post_key(key_code: int, flags: int = 0) -> None:
-            down = CGEventCreateKeyboardEvent(None, key_code, True)
-            up = CGEventCreateKeyboardEvent(None, key_code, False)
-            CGEventSetFlags(down, flags)
-            CGEventSetFlags(up, flags)
-            CGEventPost(kCGHIDEventTap, down)
-            time.sleep(0.04)
-            CGEventPost(kCGHIDEventTap, up)
-
-        post_key(9, kCGEventFlagMaskCommand)  # Command+V
-        time.sleep(0.45)
-        post_key(36)  # Return
     except Exception as exc:
         raise RuntimeError(f"无法执行粘贴和回车发送，请检查辅助功能权限：{exc}") from exc
 
